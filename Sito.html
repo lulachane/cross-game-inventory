@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cross-Game Avalanche Inventory</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+    
+    <style>
+        @keyframes fade-in-up {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in-up { animation: fade-in-up 0.6s ease-out forwards; }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e84142; border-radius: 4px; } /* Avalanche Red */
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #ff5c5c; }
+
+        body { background-color: #030712; color: white; font-family: ui-sans-serif, system-ui, sans-serif; }
+        
+        canvas { image-rendering: pixelated; }
+        #dino-canvas { background: linear-gradient(to bottom, #1e293b 0%, #0f172a 100%); }
+        #flappy-canvas { background: linear-gradient(to bottom, #38bdf8 0%, #0ea5e9 100%); }
+        
+        /* Avalanche Gradient Text */
+        .text-avax {
+            background: linear-gradient(to right, #e84142, #ff5c5c);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+    </style>
+</head>
+<body class="pb-10 selection:bg-red-500 selection:text-white flex flex-col min-h-screen">
+
+    <!-- HERO SECTION -->
+    <header class="pt-12 pb-4 px-4 text-center max-w-5xl mx-auto animate-fade-in-up">
+        <h1 class="text-3xl md:text-5xl font-black tracking-tight">
+            CrossGame <span class="text-avax">Inventory</span>
+        </h1>
+    </header>
+
+    <!-- MAIN CONSOLE -->
+    <section id="demo" class="px-4 max-w-7xl mx-auto mb-16 w-full flex-grow">
+        <div class="bg-[#0f1115] border border-gray-800 rounded-2xl p-4 md:p-6 shadow-2xl relative overflow-hidden ring-1 ring-white/5">
+            
+            <!-- BARRA SUPERIORE (WALLET & BALANCE) -->
+            <div class="flex flex-col lg:flex-row gap-6 justify-between items-start lg:items-center mb-6 bg-gray-900/50 p-4 rounded-xl border border-gray-800">
+                <div class="flex items-center gap-4 w-full lg:w-auto">
+                    <div id="wallet-icon-bg" class="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-gray-800 relative group">
+                        <i data-lucide="wallet" class="text-white w-6 h-6"></i>
+                        <!-- Avax Logo Overlay -->
+                        <div class="absolute -bottom-1 -right-1 bg-red-600 rounded-full p-0.5 border-2 border-[#0f1115]">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 2L2 20H22L12 2Z" fill="white"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-sm text-gray-200">Core Wallet</h4>
+                        <div id="wallet-status" class="text-xs font-mono text-gray-500 flex items-center gap-2">Non Connesso</div>
+                    </div>
+                    <!-- Real Balance Display -->
+                    <div id="balance-display" class="hidden ml-4 pl-4 border-l border-gray-700">
+                        <p class="text-[10px] text-gray-400 uppercase font-bold">Saldo Fuji</p>
+                        <p class="text-sm font-mono font-bold text-white"><span id="avax-balance">0.00</span> <span class="text-red-500">AVAX</span></p>
+                    </div>
+                </div>
+
+                <div id="action-buttons" class="flex flex-wrap gap-2 w-full lg:w-auto justify-end">
+                    <button onclick="connectWallet()" class="bg-red-600 hover:bg-red-500 text-white w-full lg:w-auto px-6 py-2 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-900/20 border border-red-500/50">
+                        <i data-lucide="wallet" class="w-4 h-4"></i> Connetti & Gioca
+                    </button>
+                    <!-- Fallback manuale per chi non ha wallet -->
+                    <button onclick="simulateLogin()" class="hidden md:flex bg-gray-800 text-gray-400 hover:text-white px-3 py-2 rounded-lg text-xs transition-all items-center gap-1 border border-gray-700">
+                        <i data-lucide="test-tube" class="w-3 h-3"></i> Simula
+                    </button>
+                    <!-- Pulsante Reset Soldi -->
+                    <button id="reset-btn" onclick="resetBalance()" class="hidden bg-red-900/20 text-red-400 hover:text-red-300 hover:bg-red-900/40 px-3 py-2 rounded-lg text-xs transition-all items-center gap-1 border border-red-900/50" title="Azzera Token">
+                        <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reset Soldi
+                    </button>
+                </div>
+            </div>
+
+            <!-- AREA GIOCHI -->
+            <div class="grid lg:grid-cols-2 gap-6 relative mb-6">
+                
+                <!-- SYNC INDICATOR -->
+                <div id="sync-indicator" class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 hidden flex-col items-center justify-center pointer-events-none lg:flex">
+                    <div class="bg-black border border-gray-600 p-3 rounded-full shadow-[0_0_20px_rgba(232,65,66,0.6)] animate-pulse">
+                        <i data-lucide="arrow-left-right" class="text-red-500 w-6 h-6"></i>
+                    </div>
+                    <div class="mt-2 bg-black/90 px-3 py-1 rounded border border-gray-700 text-[10px] text-red-300 font-mono shadow-xl whitespace-nowrap">
+                        SUBNET SYNC
+                    </div>
+                </div>
+
+                <!-- GIOCO A: DINO RUNNER -->
+                <div class="relative flex-1 min-h-[450px] rounded-xl border-2 bg-slate-900 border-slate-700 p-0 flex flex-col shadow-2xl overflow-hidden group">
+                    <div class="relative z-10 flex items-center justify-between p-3 bg-slate-800 border-b border-slate-700">
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i data-lucide="gamepad-2" class="text-slate-400 w-4 h-4"></i>
+                            <span class="font-mono">Dino Runner</span>
+                        </h3>
+                        <!-- Token Display A -->
+                        <div id="currency-game-a" class="hidden px-3 py-1 bg-black/40 border border-yellow-500/30 rounded text-xs text-yellow-400 items-center gap-2 font-mono shadow-inner">
+                            <div class="w-4 h-4 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500 text-[8px] font-bold">$</div>
+                            <span><span id="token-val-a">0.0</span> AVAXG</span>
+                            <!-- Indicatore +1 animato -->
+                            <span id="token-anim-a" class="absolute -top-4 right-0 text-yellow-300 text-xs font-bold opacity-0 transition-all">+1</span>
+                        </div>
+                        <div class="text-xs font-mono text-yellow-400 absolute right-3 bottom-3 md:static bg-black/50 px-2 rounded">SCORE: <span id="score-dino">0</span></div>
+                    </div>
+
+                    <!-- Canvas Dino -->
+                    <div class="relative flex-grow bg-slate-900 flex items-center justify-center overflow-hidden cursor-pointer" onclick="jumpDino()">
+                        <canvas id="dino-canvas" width="600" height="250" class="w-full h-full object-cover opacity-50 transition-opacity duration-500"></canvas>
+                        
+                        <!-- Overlay -->
+                        <div id="dino-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-20 text-center p-4">
+                            <i data-lucide="lock" class="w-10 h-10 text-gray-500 mb-3" id="dino-icon"></i>
+                            <h2 class="text-lg font-bold text-white mb-1" id="dino-title">Sync in Attesa</h2>
+                            <p class="text-[10px] text-gray-400 mb-3 max-w-[250px]" id="dino-desc">Le transazioni richiedono firma su Core.</p>
+                            
+                            <!-- Action Buttons Container -->
+                            <div class="flex flex-col gap-2 w-full max-w-[220px]">
+                                <button id="dino-claim-btn" onclick="claimSessionItems('dino')" class="hidden w-full bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white px-4 py-2 rounded-full font-bold text-xs transition-all shadow-lg border border-yellow-400 animate-pulse flex items-center justify-center gap-2">
+                                    <i data-lucide="coins" class="w-3 h-3"></i> RISCATTA REWARDS
+                                </button>
+                                <button id="dino-btn" onclick="startDinoGame()" class="hidden w-full bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-full font-bold text-xs transition-all shadow-lg">
+                                    GIOCA
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Inventario Dino -->
+                    <div class="h-36 bg-slate-800 border-t border-slate-700 p-3 overflow-y-auto custom-scrollbar">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-[10px] uppercase font-bold text-slate-400">Inventario (Medioevo)</span>
+                            <i data-lucide="database" class="w-3 h-3 text-slate-500"></i>
+                        </div>
+                        <div id="inv-dino" class="space-y-2">
+                            <p class="text-[10px] text-slate-600 text-center mt-4 italic">Nessun NFT mintato...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GIOCO B: FLAPPY BIRD -->
+                <div class="relative flex-1 min-h-[450px] rounded-xl border-2 bg-sky-950 border-sky-800 p-0 flex flex-col shadow-2xl overflow-hidden group">
+                    <div class="relative z-10 flex items-center justify-between p-3 bg-sky-900 border-b border-sky-800">
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i data-lucide="bird" class="text-sky-200 w-4 h-4"></i>
+                            <span class="font-mono">Flappy Bird</span>
+                        </h3>
+                        <!-- Token Display B -->
+                        <div id="currency-game-b" class="hidden px-3 py-1 bg-black/40 border border-cyan-500/30 rounded text-xs text-cyan-300 items-center gap-2 font-mono shadow-inner relative">
+                            <div class="w-4 h-4 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500 text-[8px] font-bold">$</div>
+                            <span><span id="token-val-b">0.0</span> AVAXS</span>
+                             <!-- Indicatore +1 animato -->
+                             <span id="token-anim-b" class="absolute -top-4 right-0 text-cyan-300 text-xs font-bold opacity-0 transition-all">+1</span>
+                        </div>
+                        <div class="text-xs font-mono text-yellow-300 absolute right-3 bottom-3 md:static bg-black/50 px-2 rounded">SCORE: <span id="score-flappy">0</span></div>
+                    </div>
+
+                    <!-- Canvas Flappy -->
+                    <div class="relative flex-grow bg-sky-900 flex items-center justify-center overflow-hidden cursor-pointer" onclick="jumpFlappy()">
+                        <canvas id="flappy-canvas" width="600" height="250" class="w-full h-full object-cover opacity-50 transition-opacity duration-500"></canvas>
+                        
+                        <!-- Overlay -->
+                        <div id="flappy-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-20 text-center p-4">
+                            <i data-lucide="lock" class="w-10 h-10 text-gray-500 mb-3" id="flappy-icon"></i>
+                            <h2 class="text-lg font-bold text-white mb-1" id="flappy-title">Sync in Attesa</h2>
+                            <p class="text-[10px] text-gray-400 mb-3 max-w-[250px]" id="flappy-desc">Le transazioni richiedono firma su Core.</p>
+                            
+                            <!-- Action Buttons -->
+                            <div class="flex flex-col gap-2 w-full max-w-[220px]">
+                                <button id="flappy-claim-btn" onclick="claimSessionItems('flappy')" class="hidden w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white px-4 py-2 rounded-full font-bold text-xs transition-all shadow-lg border border-cyan-400 animate-pulse flex items-center justify-center gap-2">
+                                    <i data-lucide="coins" class="w-3 h-3"></i> RISCATTA REWARDS
+                                </button>
+                                <button id="flappy-btn" onclick="startFlappyGame()" class="hidden w-full bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-full font-bold text-xs transition-all shadow-lg">
+                                    GIOCA
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Inventario Flappy (Synced) -->
+                    <div class="h-36 bg-sky-950 border-t border-sky-800 p-3 overflow-y-auto custom-scrollbar">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-[10px] uppercase font-bold text-sky-400">Inventario (Fantasy)</span>
+                            <div class="flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                                <span class="text-[9px] text-green-400">LIVE SYNC</span>
+                            </div>
+                        </div>
+                        <div id="inv-flappy" class="space-y-2">
+                            <p class="text-[10px] text-sky-800 text-center mt-4 italic">In attesa di dati...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LOG DEL SISTEMA -->
+            <div class="bg-black font-mono text-[10px] p-2 rounded border border-gray-800 h-24 overflow-hidden flex flex-col shadow-inner relative">
+                <div class="absolute top-0 right-0 p-1 px-2 bg-gray-900 rounded-bl text-xs text-gray-500 flex items-center gap-1">
+                    <i data-lucide="activity" class="w-2.5 h-2.5 text-red-500 animate-pulse"></i> NET: AVAX FUJI
+                </div>
+                <div id="log-container" class="overflow-y-auto flex flex-col-reverse h-full custom-scrollbar pl-1">
+                    <span class="text-gray-600 italic">&gt;&gt; Sistema pronto. In attesa connessione...</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FOOTER MODIFICATO (SOLO CROSSGAME PROJECT, DESCRIZIONE E MEMBRI) -->
+    <footer class="mt-auto border-t border-gray-800 bg-gradient-to-b from-gray-900 to-black py-12 px-6">
+        <div class="max-w-4xl mx-auto text-center space-y-8">
+            
+            <!-- Project Info -->
+            <div class="space-y-4">
+                <div class="flex items-center justify-center gap-3 mb-2">
+                    <div class="p-2 bg-red-900/20 rounded-lg border border-red-500/20">
+                        <i data-lucide="box" class="w-6 h-6 text-red-500"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold text-white tracking-tight">CrossGame Project</h3>
+                </div>
+                <p class="text-gray-400 text-sm leading-relaxed max-w-2xl mx-auto">
+                    Il nostro obiettivo è dimostrare come token e NFT possano essere condivisi e utilizzati liberamente attraverso giochi diversi sulla blockchain Avalanche, creando un inventario unificato e persistente che segue l'utente ovunque vada.
+                </p>
+                <a href="https://github.com/lulachane/cross-game-inventory" target="_blank" class="inline-flex items-center gap-2 text-red-400 hover:text-red-300 transition-colors border border-red-500/30 bg-red-900/10 px-4 py-2 rounded-full text-sm font-medium hover:bg-red-900/20 mt-2">
+                    <i data-lucide="github" class="w-4 h-4"></i>
+                    Visita il nostro GitHub
+                </a>
+            </div>
+
+            <!-- Members -->
+            <div class="border-t border-gray-800 pt-8">
+                <h4 class="text-white font-bold text-xs uppercase tracking-widest mb-6 text-gray-500">Team di Sviluppo</h4>
+                <div class="flex flex-wrap justify-center gap-8 md:gap-12">
+                    
+                    <!-- Andrea Marrucci -->
+                    <div class="flex flex-col items-center gap-2 group">
+                        <div class="w-12 h-12 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-300 group-hover:border-red-500/50 group-hover:text-red-400 transition-all shadow-lg">
+                            <span class="font-bold">AM</span>
+                        </div>
+                        <span class="text-gray-300 text-sm font-medium group-hover:text-white transition-colors">Andrea Marrucci</span>
+                    </div>
+
+                    <!-- Lula Chane -->
+                    <div class="flex flex-col items-center gap-2 group">
+                        <div class="w-12 h-12 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-300 group-hover:border-red-500/50 group-hover:text-red-400 transition-all shadow-lg">
+                            <span class="font-bold">LC</span>
+                        </div>
+                        <span class="text-gray-300 text-sm font-medium group-hover:text-white transition-colors">Lula Chane</span>
+                    </div>
+
+                    <!-- Federico Massaro -->
+                    <div class="flex flex-col items-center gap-2 group">
+                        <div class="w-12 h-12 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-300 group-hover:border-red-500/50 group-hover:text-red-400 transition-all shadow-lg">
+                            <span class="font-bold">FM</span>
+                        </div>
+                        <span class="text-gray-300 text-sm font-medium group-hover:text-white transition-colors">Federico Massaro</span>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+    </footer>
+
+    <script>
+        // --- STATO GLOBALE ---
+        let state = {
+            walletConnected: false,
+            address: '',
+            nativeBalance: '0.00', // Bilancio AVAX reale
+            tokenBalanceA: 0.0,    // $AVAXG (Dino)
+            tokenBalanceB: 0.0,    // $AVAXS (Flappy)
+            inventory: [],
+            isSimulation: false,
+            sessionItems: [],      // Oggetti raccolti nella partita corrente
+            sessionTokens: 0.0     // Token raccolti nella partita corrente
+        };
+
+        // --- GIOCO DINO VARIABILI ---
+        const dinoCanvas = document.getElementById('dino-canvas');
+        const dinoCtx = dinoCanvas.getContext('2d');
+        let dinoLoop;
+        let dinoScore = 0;
+        let isDinoPlaying = false;
+        let dinoObj = { x: 30, y: 200, w: 20, h: 20, dy: 0, grounded: true };
+        let dinoObstacles = [];
+        let dinoItems = [];
+
+        // --- GIOCO FLAPPY VARIABILI ---
+        const flappyCanvas = document.getElementById('flappy-canvas');
+        const flappyCtx = flappyCanvas.getContext('2d');
+        let flappyLoop;
+        let flappyScore = 0;
+        let isFlappyPlaying = false;
+        let bird = { x: 50, y: 100, w: 20, h: 15, dy: 0 };
+        let pipes = [];
+        let flappyItems = []; 
+
+        // --- GESTIONE WALLET ---
+        async function connectWallet() {
+            const provider = window.avalanche || window.ethereum;
+
+            if (provider) {
+                try {
+                    addLog("Connessione a Avalanche C-Chain...", "AUTH");
+                    const web3Provider = new ethers.providers.Web3Provider(provider);
+                    await web3Provider.send("eth_requestAccounts", []); 
+                    const signer = web3Provider.getSigner();
+                    const address = await signer.getAddress();
+                    
+                    // Fetch Balance Reale
+                    const balanceBN = await signer.getBalance();
+                    const balanceEth = ethers.utils.formatEther(balanceBN);
+                    
+                    setupConnectedState(address, parseFloat(balanceEth).toFixed(4), false);
+                } catch (error) {
+                    console.error(error);
+                    addLog("Connessione fallita o rifiutata.", "ERR");
+                }
+            } else {
+                addLog("Wallet non rilevato. Usa 'Simula'.", "ERR");
+            }
+        }
+
+        function simulateLogin() {
+            setupConnectedState("0x71C...DEMO", "12.4502", true);
+        }
+
+        function setupConnectedState(addr, balance, isSim) {
+            state.walletConnected = true;
+            state.isSimulation = isSim;
+            state.address = addr;
+            state.nativeBalance = balance;
+            
+            // CARICAMENTO DATI REALI (LocalStorage)
+            // Usiamo l'indirizzo come chiave per salvare i dati specifici dell'utente
+            const storageKey = `crossgame_data_${addr.toLowerCase()}`;
+            const savedData = localStorage.getItem(storageKey);
+
+            if (savedData) {
+                const parsed = JSON.parse(savedData);
+                state.tokenBalanceA = parsed.tokensA || 0;
+                state.tokenBalanceB = parsed.tokensB || 0;
+                state.inventory = parsed.inventory || [];
+                addLog("Dati utente caricati con successo.", "INFO");
+            } else {
+                // Nessun dato precedente, inizia da zero
+                state.tokenBalanceA = 0.0;
+                state.tokenBalanceB = 0.0;
+                state.inventory = [];
+                addLog("Nuovo profilo utente creato.", "INFO");
+            }
+
+            updateUI();
+            addLog(`Connesso: ${addr}`, "SUCCESS");
+            addLog(`Saldo rilevato: ${balance} AVAX`, "INFO");
+            
+            prepareGameUI('dino');
+            prepareGameUI('flappy');
+        }
+
+        // Funzione per salvare lo stato
+        function saveUserState() {
+            if (!state.address) return;
+            const storageKey = `crossgame_data_${state.address.toLowerCase()}`;
+            const dataToSave = {
+                tokensA: state.tokenBalanceA,
+                tokensB: state.tokenBalanceB,
+                inventory: state.inventory
+            };
+            localStorage.setItem(storageKey, JSON.stringify(dataToSave));
+        }
+
+        function resetBalance() {
+            if(!state.walletConnected) return;
+            state.tokenBalanceA = 0.0;
+            state.tokenBalanceB = 0.0;
+            saveUserState();
+            updateUI();
+            addLog("Bilancio token resettato a 0.", "INFO");
+        }
+
+        function prepareGameUI(game) {
+            const icon = document.getElementById(`${game}-icon`);
+            const title = document.getElementById(`${game}-title`);
+            const desc = document.getElementById(`${game}-desc`);
+            const btn = document.getElementById(`${game}-btn`);
+            const claimBtn = document.getElementById(`${game}-claim-btn`);
+            const canvas = document.getElementById(`${game}-canvas`);
+
+            icon.setAttribute('class', 'w-10 h-10 text-green-500 mb-3');
+            icon.innerHTML = game === 'dino' ? '<path d="M10 2v2h2v2h2v2h2v2h-2v2h-2v-2H10v2H8v-2H6v2H4v-4h2v-2h2v-2h2v-2h2z"/>' : '<path d="M2 12h20M2 12l4-4m-4 4l4 4"/>'; 
+            title.innerText = "PRONTO A GIOCARE";
+            desc.innerText = "Guadagna token correndo!";
+            btn.classList.remove('hidden');
+            btn.innerText = "GIOCA";
+            claimBtn.classList.add('hidden'); 
+            canvas.classList.remove('opacity-50');
+            canvas.classList.add('opacity-100');
+        }
+
+        function updateUI() {
+            const shortAddr = state.isSimulation ? "0xDEMO...USER" : state.address.substring(0,6)+"...";
+            document.getElementById('wallet-status').innerHTML = `<span class="text-green-400 font-bold">● ${shortAddr}</span>`;
+            document.getElementById('wallet-icon-bg').className = "w-12 h-12 rounded-xl flex items-center justify-center bg-red-900/50 border border-red-500 text-white";
+            
+            // Show Native Balance
+            document.getElementById('balance-display').classList.remove('hidden');
+            document.getElementById('avax-balance').innerText = state.nativeBalance;
+
+            document.getElementById('sync-indicator').classList.remove('hidden');
+            document.getElementById('sync-indicator').classList.add('flex');
+            
+            document.getElementById('currency-game-a').classList.remove('hidden');
+            document.getElementById('currency-game-a').classList.add('flex');
+            document.getElementById('currency-game-b').classList.remove('hidden');
+            document.getElementById('currency-game-b').classList.add('flex');
+            
+            // Mostra pulsante reset quando connesso
+            document.getElementById('reset-btn').classList.remove('hidden');
+            document.getElementById('reset-btn').classList.add('flex');
+
+            // Aggiorna valori token
+            document.getElementById('token-val-a').innerText = state.tokenBalanceA.toFixed(1);
+            document.getElementById('token-val-b').innerText = state.tokenBalanceB.toFixed(1);
+            
+            updateInventoryUI();
+        }
+
+        function earnSessionTokens(amount, game) {
+            state.sessionTokens += amount;
+            
+            // Animazione feedback
+            const animId = game === 'dino' ? 'token-anim-a' : 'token-anim-b';
+            const animEl = document.getElementById(animId);
+            
+            if(animEl) {
+                animEl.style.opacity = '1';
+                animEl.style.transform = 'translateY(-10px)';
+                setTimeout(() => {
+                    animEl.style.opacity = '0';
+                    animEl.style.transform = 'translateY(0)';
+                }, 800);
+            }
+        }
+
+        // --- GIOCO DINO LOGIC ---
+        function startDinoGame() {
+            state.sessionItems = []; 
+            state.sessionTokens = 0;
+            document.getElementById('dino-overlay').classList.add('hidden');
+            isDinoPlaying = true;
+            dinoScore = 0;
+            dinoObj.y = 200;
+            dinoObj.dy = 0;
+            dinoObstacles = [];
+            dinoItems = [];
+            updateDino();
+        }
+
+        function jumpDino() {
+            if (isDinoPlaying && dinoObj.grounded) {
+                dinoObj.dy = -8;
+                dinoObj.grounded = false;
+            }
+        }
+
+        function updateDino() {
+            if (!isDinoPlaying) return;
+            dinoCtx.clearRect(0, 0, dinoCanvas.width, dinoCanvas.height);
+            
+            // Physics
+            if (!dinoObj.grounded) {
+                dinoObj.dy += 0.4;
+                dinoObj.y += dinoObj.dy;
+            }
+            if (dinoObj.y >= 200) {
+                dinoObj.y = 200;
+                dinoObj.dy = 0;
+                dinoObj.grounded = true;
+            }
+
+            // --- DISEGNO DINOSAURO (Pixel Art) ---
+            dinoCtx.fillStyle = '#ef4444'; // Rosso Avalanche
+
+            // Testa
+            dinoCtx.fillRect(dinoObj.x + 10, dinoObj.y, 10, 8); 
+            dinoCtx.fillRect(dinoObj.x + 10, dinoObj.y + 8, 6, 2); // Mascella superiore
+            
+            // Corpo
+            dinoCtx.fillRect(dinoObj.x + 6, dinoObj.y + 8, 8, 7); // Torace
+            dinoCtx.fillRect(dinoObj.x + 4, dinoObj.y + 10, 10, 6); // Pancia
+
+            // Coda
+            dinoCtx.fillRect(dinoObj.x, dinoObj.y + 8, 6, 4); // Base coda
+            dinoCtx.fillRect(dinoObj.x - 2, dinoObj.y + 6, 4, 3); // Punta coda
+
+            // Braccine
+            dinoCtx.fillRect(dinoObj.x + 14, dinoObj.y + 10, 4, 2);
+
+            // Gambe con animazione semplice
+            const isMoving = dinoObj.grounded; // Corre solo se a terra
+            const tick = Math.floor(Date.now() / 100);
+            
+            if (!isMoving || tick % 2 === 0) {
+                // Posa 1
+                dinoCtx.fillRect(dinoObj.x + 6, dinoObj.y + 16, 3, 4); // Gamba Sx
+                dinoCtx.fillRect(dinoObj.x + 12, dinoObj.y + 16, 3, 4); // Gamba Dx
+            } else {
+                // Posa 2 (corsa)
+                dinoCtx.fillRect(dinoObj.x + 6, dinoObj.y + 16, 3, 2); // Gamba Sx su
+                dinoCtx.fillRect(dinoObj.x + 12, dinoObj.y + 16, 3, 4); // Gamba Dx giù
+            }
+
+            // Occhio
+            dinoCtx.fillStyle = '#ffffff';
+            dinoCtx.fillRect(dinoObj.x + 14, dinoObj.y + 2, 2, 2);
+
+            // --- SPAWN OSTACOLI (CACTUS) OTTIMIZZATO ---
+            // Recupera l'ultimo ostacolo generato
+            const lastObstacle = dinoObstacles[dinoObstacles.length - 1];
+            
+            // 1. Distanza ridotta leggermente per renderli più frequenti (min 180px invece di 250px)
+            //    ma sempre sufficiente per saltare.
+            const minDistance = 180 + Math.random() * 120; 
+
+            // Genera solo se non ci sono ostacoli O se l'ultimo è oltre la distanza di sicurezza
+            if (!lastObstacle || (600 - lastObstacle.x > minDistance)) {
+                // 2. Probabilità aumentata (da 0.012 a 0.025) per spawnare più spesso quando possibile
+                if (Math.random() < 0.025) {
+                    dinoObstacles.push({x: 600, y: 205, w: 10, h: 15});
+                }
+            }
+
+            // --- SPAWN OGGETTI (SPARSI) ---
+            const lastItem = dinoItems[dinoItems.length - 1];
+            // Distanza minima forzata tra oggetti (es. 600px + random) per evitare cluster
+            const minItemDistance = 600 + Math.random() * 400;
+
+            // Controllo per evitare che l'oggetto appaia sopra un cactus o troppo vicino all'ultimo oggetto
+            const obstacleNearby = dinoObstacles.some(obs => obs.x > 550);
+            
+            if (!obstacleNearby && (!lastItem || (600 - lastItem.x > minItemDistance))) {
+                // Probabilità leggermente alzata (0.01) perché ora c'è il filtro della distanza che ne blocca molti
+                if (Math.random() < 0.01) {
+                    dinoItems.push({x: 600, y: 150, w: 20, h: 20, type: 'nft'});
+                }
+            }
+
+            dinoCtx.fillStyle = '#10b981';
+            dinoObstacles.forEach((obs, i) => {
+                obs.x -= 4; 
+                dinoCtx.fillRect(obs.x, obs.y, obs.w, obs.h);
+                if (checkCollision(dinoObj, obs)) {
+                    endGame('dino');
+                }
+                if (obs.x < -20) dinoObstacles.splice(i, 1);
+            });
+
+            dinoItems.forEach((item, i) => {
+                item.x -= 4;
+                
+                // --- DISEGNO FORZIERE (Pixel Art) ---
+                dinoCtx.fillStyle = '#92400e'; // amber-800
+                dinoCtx.fillRect(item.x + 2, item.y + 6, 16, 12); // Corpo
+                dinoCtx.fillStyle = '#b45309'; // amber-700
+                dinoCtx.fillRect(item.x + 2, item.y + 2, 16, 4); // Coperchio
+                dinoCtx.fillStyle = '#fbbf24'; // amber-400
+                dinoCtx.fillRect(item.x + 3, item.y + 2, 2, 16); // Banda sx
+                dinoCtx.fillRect(item.x + 15, item.y + 2, 2, 16); // Banda dx
+                dinoCtx.fillStyle = '#f59e0b'; // amber-500
+                dinoCtx.fillRect(item.x + 8, item.y + 7, 4, 4); // Piastra
+                dinoCtx.fillStyle = '#000000'; 
+                dinoCtx.fillRect(item.x + 9, item.y + 8, 2, 2); // Buco
+                dinoCtx.fillStyle = '#ffffff';
+                dinoCtx.fillRect(item.x + 4, item.y + 3, 1, 1); // Luce
+
+                if (checkCollision(dinoObj, item)) {
+                    dinoItems.splice(i, 1);
+                    collectItem();
+                }
+                if (item.x < -20) dinoItems.splice(i, 1);
+            });
+
+            dinoCtx.beginPath();
+            dinoCtx.moveTo(0, 220);
+            dinoCtx.lineTo(600, 220);
+            dinoCtx.strokeStyle = '#64748b';
+            dinoCtx.stroke();
+
+            dinoScore++;
+            const currentScore = Math.floor(dinoScore/10);
+            document.getElementById('score-dino').innerText = currentScore;
+            
+            if (dinoScore % 500 === 0 && dinoScore > 0) earnSessionTokens(1.0, 'dino');
+
+            dinoLoop = requestAnimationFrame(updateDino);
+        }
+
+        // --- GAME LOGIC: FLAPPY ---
+        function startFlappyGame() {
+            state.sessionItems = []; 
+            state.sessionTokens = 0;
+            document.getElementById('flappy-overlay').classList.add('hidden');
+            isFlappyPlaying = true;
+            flappyScore = 0;
+            bird.y = 100;
+            bird.dy = 0;
+            pipes = [];
+            flappyItems = [];
+            updateFlappy();
+        }
+
+        function jumpFlappy() {
+            if (isFlappyPlaying) bird.dy = -6;
+        }
+
+        function updateFlappy() {
+            if (!isFlappyPlaying) return;
+            flappyCtx.clearRect(0, 0, flappyCanvas.width, flappyCanvas.height);
+
+            bird.dy += 0.3;
+            bird.y += bird.dy;
+
+            // Disegno Bird (Semplice)
+            flappyCtx.fillStyle = '#facc15';
+            flappyCtx.fillRect(bird.x, bird.y, bird.w, bird.h);
+            flappyCtx.fillStyle = 'white';
+            flappyCtx.fillRect(bird.x+12, bird.y+2, 5, 5); // Occhio
+            flappyCtx.fillStyle = 'black';
+            flappyCtx.fillRect(bird.x+14, bird.y+4, 2, 2); // Pupilla
+            flappyCtx.fillStyle = '#f97316';
+            flappyCtx.fillRect(bird.x+16, bird.y+8, 6, 4); // Becco
+
+            // --- SPAWN TUBI PIÙ FREQUENTI MA SICURI ---
+            // Controlla l'ultimo tubo per evitare sovrapposizioni
+            const lastPipe = pipes[pipes.length - 1];
+            // Distanza minima tra i tubi ridotta (da 200 a 170) per maggiore frequenza
+            const minPipeGap = 170;
+
+            if (!lastPipe || (600 - lastPipe.x > minPipeGap)) {
+                // Probabilità aumentata (da 0.015 a 0.025)
+                if (Math.random() < 0.025) { 
+                    let gap = 140; // Spazio verticale per passare
+                    let topH = Math.random() * 120 + 30; // Altezza tubo superiore
+                    pipes.push({x: 600, y: 0, w: 30, h: topH, type: 'top'});
+                    pipes.push({x: 600, y: topH + gap, w: 30, h: 250, type: 'bottom'});
+                }
+            }
+
+            // --- SPAWN OGGETTI (SPARSI) ---
+            const lastFlappyItem = flappyItems[flappyItems.length - 1];
+            // Distanza minima forzata tra pozioni
+            const minFlappyItemDist = 500 + Math.random() * 500;
+
+             if (!lastFlappyItem || (600 - lastFlappyItem.x > minFlappyItemDist)) {
+                // Probabilità 0.01
+                if (Math.random() < 0.01) {
+                    flappyItems.push({x: 600, y: Math.random() * 150 + 50, w: 20, h: 20, type: 'nft'});
+                }
+            }
+
+            flappyCtx.fillStyle = '#10b981';
+            pipes.forEach((pipe, i) => {
+                pipe.x -= 2;
+                flappyCtx.fillRect(pipe.x, pipe.y, pipe.w, pipe.h);
+                // Dettaglio tubo (bordo scuro)
+                flappyCtx.strokeStyle = '#064e3b';
+                flappyCtx.lineWidth = 2;
+                flappyCtx.strokeRect(pipe.x, pipe.y, pipe.w, pipe.h);
+                
+                if (checkCollision(bird, pipe) || bird.y > 250 || bird.y < 0) {
+                    endGame('flappy');
+                }
+                if (pipe.x < -30) pipes.splice(i, 1);
+            });
+
+            flappyItems.forEach((item, i) => {
+                item.x -= 2;
+                
+                // --- DISEGNO POZIONE (Pixel Art) ---
+                // Sostituisce il quadrato giallo/arancione
+                
+                // Bottiglia (Base tonda)
+                flappyCtx.fillStyle = '#3b82f6'; // Liquido blu (Mana/Pozione)
+                flappyCtx.fillRect(item.x + 4, item.y + 8, 12, 10); // Pancia
+                
+                // Collo bottiglia
+                flappyCtx.fillStyle = '#94a3b8'; // Vetro/Grigio
+                flappyCtx.fillRect(item.x + 8, item.y + 2, 4, 6); 
+                
+                // Tappo/Sughero
+                flappyCtx.fillStyle = '#78350f'; // Marrone
+                flappyCtx.fillRect(item.x + 7, item.y, 6, 2);
+
+                // Riflesso
+                flappyCtx.fillStyle = 'rgba(255,255,255,0.6)';
+                flappyCtx.fillRect(item.x + 6, item.y + 10, 2, 4);
+
+                // Bordo esterno leggero per visibilità
+                // (opzionale, ma aiuta a distinguere dallo sfondo)
+
+                if (checkCollision(bird, item)) {
+                    flappyItems.splice(i, 1);
+                    collectItem();
+                }
+                if (item.x < -20) flappyItems.splice(i, 1);
+            });
+
+            flappyScore++;
+            const currentScore = Math.floor(flappyScore/10);
+            document.getElementById('score-flappy').innerText = currentScore;
+            
+            // Passive earning: 1 token ogni 50 punti di SCORE VISUALIZZATO
+            if (flappyScore % 500 === 0 && flappyScore > 0) earnSessionTokens(1.0, 'flappy');
+
+            flappyLoop = requestAnimationFrame(updateFlappy);
+        }
+
+        // --- SHARED GAME UTILS ---
+        function checkCollision(r1, r2) {
+            return (r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y);
+        }
+
+        function collectItem() {
+            const types = ['sword', 'shield', 'potion', 'scroll', 'gem'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            state.sessionItems.push(type);
+            addLog(`+1 Oggetto Trovato (${type})`, "INFO");
+        }
+
+        function endGame(game) {
+            if (game === 'dino') isDinoPlaying = false;
+            else isFlappyPlaying = false;
+
+            const overlay = document.getElementById(`${game}-overlay`);
+            const title = document.getElementById(`${game}-title`);
+            const desc = document.getElementById(`${game}-desc`);
+            const playBtn = document.getElementById(`${game}-btn`);
+            const claimBtn = document.getElementById(`${game}-claim-btn`);
+
+            overlay.classList.remove('hidden');
+            title.innerText = "GAME OVER";
+            
+            // Calcolo Rewards
+            const hasItems = state.sessionItems.length > 0;
+            const hasTokens = state.sessionTokens > 0;
+
+            if (hasItems || hasTokens) {
+                let rewardText = "";
+                if (hasTokens) rewardText += `${state.sessionTokens} Token`;
+                if (hasTokens && hasItems) rewardText += " + ";
+                if (hasItems) rewardText += `${state.sessionItems.length} NFT`;
+                
+                desc.innerHTML = `<span class="text-green-400 font-bold">${rewardText}</span> da mintare.`;
+                playBtn.innerText = "RINUNCIA";
+                playBtn.className = "w-full bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-full font-bold text-xs transition-all";
+                claimBtn.classList.remove('hidden');
+            } else {
+                desc.innerText = "Nessun premio trovato.";
+                playBtn.innerText = "RIPROVA";
+                playBtn.className = "w-full bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-full font-bold text-xs transition-all";
+                claimBtn.classList.add('hidden');
+            }
+        }
+
+        // --- TRANSACTION LOGIC ---
+        async function claimSessionItems(game) {
+            const count = state.sessionItems.length;
+            const tokens = state.sessionTokens;
+            
+            addLog(`RICHIESTA FIRMA: Mint Batch...`, "INFO");
+            
+            if (!state.isSimulation) {
+                try {
+                    const provider = new ethers.providers.Web3Provider(window.ethereum);
+                    const signer = provider.getSigner();
+                    // UNICA FIRMA PER TUTTI GLI OGGETTI E TOKEN
+                    await signer.signMessage(`Conferma Minting:\n- ${count} Oggetti NFT\n- ${tokens} Token ERC-20\n\nGas Fee: 0.002 AVAX`);
+                } catch(e) {
+                    addLog("Firma annullata. Rewards persi.", "ERR");
+                    return;
+                }
+            } else {
+                await new Promise(r => setTimeout(r, 1000));
+            }
+
+            // Aggiungi all'inventario permanente
+            state.sessionItems.forEach(type => {
+                state.inventory.push({ id: Date.now() + Math.random(), type: type });
+            });
+            
+            // Aggiungi token al bilancio locale
+            if (game === 'dino') state.tokenBalanceA += tokens;
+            else state.tokenBalanceB += tokens;
+            
+            // SALVA LO STATO
+            saveUserState();
+            
+            addLog(`Transazione confermata su Block #${Math.floor(Math.random()*1000000)}`, "SUCCESS");
+            addLog(`Ricevuti: ${tokens} Token + ${count} NFT`, "SUCCESS");
+
+            state.sessionItems = []; 
+            state.sessionTokens = 0;
+            updateUI();
+            
+            // Reset UI Gioco
+            document.getElementById(`${game}-claim-btn`).classList.add('hidden');
+            document.getElementById(`${game}-btn`).innerText = "GIOCA DI NUOVO";
+            document.getElementById(`${game}-btn`).className = "w-full bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-full font-bold text-xs transition-all shadow-lg";
+        }
+
+        async function burnItem(id) {
+            addLog(`RICHIESTA FIRMA: Burn Item #${id.toString().slice(-4)}...`, "INFO");
+            if (!state.isSimulation) {
+                try {
+                    const provider = new ethers.providers.Web3Provider(window.ethereum);
+                    const signer = provider.getSigner();
+                    await signer.signMessage(`Conferma distruzione ID: ${id}\nRiceverai: 0.1 AVAXG`);
+                } catch(e) { 
+                    addLog("Firma rifiutata.", "ERR");
+                    return; 
+                }
+            } else { await new Promise(r => setTimeout(r, 500)); }
+            
+            state.inventory = state.inventory.filter(item => item.id !== id);
+            // Burning items gives tokens back
+            state.tokenBalanceA += 0.1;
+            
+            // SALVA LO STATO
+            saveUserState();
+            
+            addLog(`Oggetto distrutto. +0.1 AVAXG`, "SUCCESS");
+            updateUI();
+        }
+
+        // --- UI HELPERS ---
+        function getAssetDetails(type, isCastle) {
+            const names = {
+                sword:  isCastle ? "Spada del Re" : "Lama Fotonica",
+                shield: isCastle ? "Scudo di Quercia" : "Barriera Plasma",
+                potion: isCastle ? "Elisir Magico" : "Nano-Stim",
+                scroll: isCastle ? "Pergamena Antica" : "Data Drive",
+                gem:    isCastle ? "Rubino Grezzo" : "Nucleo Core"
+            };
+            
+            const iconMap = { sword: 'sword', shield: 'shield', potion: 'zap', scroll: 'scroll', gem: 'diamond' };
+            return { name: names[type] || 'Oggetto', icon: iconMap[type] || 'box' };
+        }
+
+        function updateInventoryUI() {
+            const generateCardHTML = (item, themeColor, isCastleTheme) => {
+                const asset = getAssetDetails(item.type, isCastleTheme);
+                const borderColor = themeColor === 'slate' ? 'border-slate-600' : 'border-sky-700';
+                const bgColor = themeColor === 'slate' ? 'bg-slate-700' : 'bg-sky-800';
+                const iconColor = themeColor === 'slate' ? 'text-yellow-500' : 'text-cyan-400';
+                const textColor = themeColor === 'slate' ? 'text-gray-400' : 'text-sky-300';
+
+                return `
+                <div class="flex items-center justify-between gap-3 p-2 rounded mb-2 border ${borderColor} ${bgColor} animate-fade-in-up group">
+                    <div class="flex items-center gap-3">
+                        <div class="p-1 bg-black/30 rounded ${iconColor}"><i data-lucide="${asset.icon}" class="w-4 h-4"></i></div>
+                        <div>
+                            <div class="text-xs font-bold text-white">${asset.name}</div>
+                            <div class="text-[9px] ${textColor} font-mono">ID: #${item.id.toString().slice(-4)}</div>
+                        </div>
+                    </div>
+                    <button onclick="burnItem(${item.id})" class="text-slate-500 hover:text-red-500 transition-colors p-1" title="Brucia per Token">
+                        <i data-lucide="flame" class="w-3 h-3"></i>
+                    </button>
+                </div>`;
+            };
+
+            const htmlDino = state.inventory.map(item => generateCardHTML(item, 'slate', true)).join('');
+            document.getElementById('inv-dino').innerHTML = htmlDino || '<p class="text-[10px] text-slate-600 text-center mt-4 italic">Cerca scrigni...</p>';
+
+            const htmlFlappy = state.inventory.map(item => generateCardHTML(item, 'sky', false)).join('');
+            document.getElementById('inv-flappy').innerHTML = htmlFlappy || '<p class="text-[10px] text-sky-800 text-center mt-4 italic">Sincronizzato...</p>';
+            
+            lucide.createIcons();
+        }
+
+        function addLog(msg, type) {
+            const container = document.getElementById('log-container');
+            const time = new Date().toLocaleTimeString();
+            const color = type === 'ERR' ? 'text-red-400' : 'text-green-400';
+            const icon = type === 'ERR' ? 'alert-circle' : 'check-circle-2';
+            container.innerHTML = `
+                <div class="mb-1 border-b border-gray-800 pb-1 flex gap-2">
+                    <span class="text-gray-500">[${time}]</span> 
+                    <span class="${color} flex items-center gap-1">${msg}</span>
+                </div>` + container.innerHTML;
+        }
+
+        lucide.createIcons();
+    </script>
+</body>
+</html>
